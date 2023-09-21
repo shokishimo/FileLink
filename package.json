@@ -8,7 +8,9 @@
     "build": "tsc",
     "watch": "tsc -w",
     "test": "jest",
-    "cdk": "cdk"
+    "cdk": "cdk",
+    "compile:go": "cd lambdas && GOOS=linux go build -o main main.go && cd ../",
+    "deploy": "npm run compile:go && npm run -- cdk deploy"
   },
   "devDependencies": {
     "@types/jest": "^29.5.1",
