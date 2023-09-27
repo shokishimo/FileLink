@@ -1,19 +1,22 @@
-import * as cdk from 'aws-cdk-lib';
+import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
-import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as path from "path";
 
 export class FileLinkStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
+    // S3 Bucket Configuration
     const s3Bucket = new s3.Bucket(this, "S3Bucket", {
-      bucketName: "file-link-s3-bucket",
+      bucketName: "file-link-s3bucket",
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      removalPolicy: cdk.RemovalPolicy.RETAIN
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      enforceSSL: true,
+      versioned: true, // Ensures new versions of objects are created on overwrite
     });
 
     const dynamoTable = new dynamodb.Table(this, "DynamoTable", {
