@@ -13,8 +13,9 @@ export class FileLinkStack extends cdk.Stack {
     // S3 Bucket Configuration
     const s3Bucket = new s3.Bucket(this, "S3Bucket", {
       bucketName: "file-link-s3bucket",
+      publicReadAccess: false,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
       enforceSSL: true,
       versioned: true, // Ensures new versions of objects are created on overwrite
     });
