@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"fmt"
 	"net/http"
 	"io"
@@ -18,24 +17,24 @@ import (
 
 type APIHandler struct {
 	AwsConfig aws.Config
-	DynamoTableName string
 	dbClient  *dynamodb.Client
-	S3BucketName string
-	s3Client *s3.Client
+	s3Client  *s3.Client
 }
 
+const (
+	awsRegion       string = "us-east-2"
+	dynamoTableName string = "FileLinkDB"
+	s3BucketName    string = "file-link-s3bucket"
+)
 
 func main() {
-	log.Printf("Fiber cold start")
-	awsConfig, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion("us-east-2"))
+	awsConfig, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(awsRegion))
 	if err != nil {
 		panic(err)
 	}
 	apiHandler := APIHandler{
 		AwsConfig: awsConfig,
-		DynamoTableName: "FileLinkDB",
 		dbClient: dynamodb.NewFromConfig(awsConfig),
-		S3BucketName: "file-link-s3bucket",
 		s3Client: s3.NewFromConfig(awsConfig),
 	}
 
@@ -66,7 +65,7 @@ func main() {
 
 			// Upload the file to S3
 			res, err := apiHandler.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
-				Bucket: &apiHandler.S3BucketName,
+				Bucket: aws.String(s3BucketName),
 				Key:    aws.String(fileHeader.Filename),
 				Body:   file,
 				ContentType: aws.String("application/zip"),
