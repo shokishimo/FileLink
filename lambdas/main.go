@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"io"
+	"net/http"
 	"strings"
+	"encoding/json"
+
+	// "bytes"
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -13,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/awslabs/aws-lambda-go-api-proxy/httpadapter"
+	"github.com/google/uuid"
 )
 
 type APIHandler struct {
@@ -27,6 +31,10 @@ const (
 	s3BucketName    string = "file-link-s3bucket"
 )
 
+type Url struct {
+	UrlKey string `json:"url_key"`
+}
+
 func main() {
 	awsConfig, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(awsRegion))
 	if err != nil {
@@ -38,59 +46,65 @@ func main() {
 		s3Client: s3.NewFromConfig(awsConfig),
 	}
 
-	http.HandleFunc("/share/", func(w http.ResponseWriter, r *http.Request) {
-		if (r.Method == http.MethodPost) {
-			pathParts := strings.Split(r.URL.Path, "/")
-			if len(pathParts) < 3 {
-					http.Error(w, "Not found", http.StatusNotFound)
-					return
-			}
-			valueAfterShare := pathParts[2]
-			fmt.Fprintf(w, "Value after /share/ is: %s", valueAfterShare)
-
-			// Parse the form data to retrieve the file
-			err := r.ParseMultipartForm(10 << 20) // 10 MB limit
-			if err != nil {
-				http.Error(w, "Unable to parse form", http.StatusBadRequest)
-				return
-			}
-
-			// Retrieve the file from post body
-			file, fileHeader, err := r.FormFile("zip-file")
-			if err != nil {
-				http.Error(w, "Unable to get the file", http.StatusBadRequest)
-				return
-			}
-			defer file.Close()
-
-			// Upload the file to S3
-			res, err := apiHandler.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
-				Bucket: aws.String(s3BucketName),
-				Key:    aws.String(fileHeader.Filename),
-				Body:   file,
-				ContentType: aws.String("application/zip"),
-			})
-			if err != nil {
-				http.Error(w, fmt.Sprintf("Failed to upload to S3: %s", err.Error()), http.StatusInternalServerError)
-				return
-			}
-	
-			// success
-			w.WriteHeader(http.StatusCreated)
-			w.Write([]byte(fmt.Sprintf("Successfully uploaded file to S3: %v", res)))
+	http.HandleFunc("/createNewUrl", func(w http.ResponseWriter, r *http.Request) {
+		if (r.Method != http.MethodGet) {
+			http.Error(w, "Method is not alloed", http.StatusMethodNotAllowed)
 			return
 		}
+		u := uuid.New()
+
+		response := Url{
+			UrlKey: u.String(),
+		}
+
+		// Serialize the response object to JSON
+		jsonResponse, err := json.Marshal(response)
+		if err != nil {
+			http.Error(w, "Failed to serialize response", http.StatusInternalServerError)
+			return
+		}
+		
+		// Set Content-Type and send the response
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(jsonResponse)
 	})
 
-	http.HandleFunc("/abc", func(w http.ResponseWriter, r *http.Request) {
-		if (r.Method == http.MethodGet) {
-			io.WriteString(w, "/abc with Get")
+	http.HandleFunc("/share/", func(w http.ResponseWriter, r *http.Request) {
+		if (r.Method != http.MethodPost) {
+			http.Error(w, "Method is not alloed", http.StatusMethodNotAllowed)
 			return
 		}
-		if (r.Method == http.MethodPost) {
-			io.WriteString(w, "/abc with Post")
+		pathParts := strings.Split(r.URL.Path, "/")
+		if len(pathParts) < 3 {
+				http.Error(w, "Not found", http.StatusNotFound)
+				return
+		}
+		urlKey := pathParts[2]
+
+		// Retrieve the file from post body
+		file, _, err := r.FormFile("zip-file")
+		if err != nil {
+			http.Error(w, "Unable to get the file", http.StatusBadRequest)
 			return
 		}
+		defer file.Close()
+
+		// Upload the file to S3
+		_, err = apiHandler.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
+			Bucket: 		 aws.String(s3BucketName),
+			Key:    		 aws.String("Filename_" + urlKey),
+			Body:   		 file,
+			ContentType: aws.String("application/zip"),
+		})
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to upload to S3: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		// success
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte("Successfully uploaded file to S3"))
 	})
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
