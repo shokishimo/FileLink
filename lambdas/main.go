@@ -2,13 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"io"
+	//"io"
 	"net/http"
 	"strings"
-	"encoding/json"
-
-	// "bytes"
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -42,12 +40,12 @@ func main() {
 	}
 	apiHandler := APIHandler{
 		AwsConfig: awsConfig,
-		dbClient: dynamodb.NewFromConfig(awsConfig),
-		s3Client: s3.NewFromConfig(awsConfig),
+		dbClient:  dynamodb.NewFromConfig(awsConfig),
+		s3Client:  s3.NewFromConfig(awsConfig),
 	}
 
-	http.HandleFunc("/createNewUrl", func(w http.ResponseWriter, r *http.Request) {
-		if (r.Method != http.MethodGet) {
+	http.HandleFunc("/api/createNewUrl", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
 			http.Error(w, "Method is not alloed", http.StatusMethodNotAllowed)
 			return
 		}
@@ -63,22 +61,22 @@ func main() {
 			http.Error(w, "Failed to serialize response", http.StatusInternalServerError)
 			return
 		}
-		
+
 		// Set Content-Type and send the response
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(jsonResponse)
 	})
 
-	http.HandleFunc("/share/", func(w http.ResponseWriter, r *http.Request) {
-		if (r.Method != http.MethodPost) {
+	http.HandleFunc("/api/share/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
 			http.Error(w, "Method is not alloed", http.StatusMethodNotAllowed)
 			return
 		}
 		pathParts := strings.Split(r.URL.Path, "/")
 		if len(pathParts) < 3 {
-				http.Error(w, "Not found", http.StatusNotFound)
-				return
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
 		}
 		urlKey := pathParts[2]
 
@@ -92,9 +90,9 @@ func main() {
 
 		// Upload the file to S3
 		_, err = apiHandler.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
-			Bucket: 		 aws.String(s3BucketName),
-			Key:    		 aws.String("Filename_" + urlKey),
-			Body:   		 file,
+			Bucket:      aws.String(s3BucketName),
+			Key:         aws.String("Filename_" + urlKey),
+			Body:        file,
 			ContentType: aws.String("application/zip"),
 		})
 		if err != nil {
@@ -107,16 +105,5 @@ func main() {
 		w.Write([]byte("Successfully uploaded file to S3"))
 	})
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if (r.Method == http.MethodGet) {
-			io.WriteString(w, "root with Get")
-			return
-		}
-		if (r.Method == http.MethodPost) {
-			io.WriteString(w, "root with Post")
-			return
-		}
-	})
-	
 	lambda.Start(httpadapter.New(http.DefaultServeMux).ProxyWithContext)
 }
