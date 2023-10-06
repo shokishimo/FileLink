@@ -12,32 +12,14 @@ export class FileLinkStack extends cdk.Stack {
     super(scope, id, props);
 
     // S3 Bucket Configuration
-    // const s3Bucket = new s3.Bucket(this, "S3Bucket", {
-    //   bucketName: "file-link-s3bucket",
-    //   publicReadAccess: true,
-    //   //blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-    //   removalPolicy: cdk.RemovalPolicy.DESTROY,
-    //   enforceSSL: true,
-    //   versioned: true, // Ensures new versions of objects are created on overwrite
-    // });
-
-    // S3 Bucket Configuration
     const s3Bucket = new s3.Bucket(this, "S3Bucket", {
       bucketName: "file-link-s3bucket",
+      publicReadAccess: true,
+      //blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       enforceSSL: true,
-      versioned: true,
+      versioned: true, // Ensures new versions of objects are created on overwrite
     });
-
-    // Bucket policy that allows public read access to objects
-    const publicReadPolicyStatement = new iam.PolicyStatement({
-      actions: ["s3:GetObject"],
-      resources: [s3Bucket.arnForObjects("*")], // All objects in the bucket
-      effect: iam.Effect.ALLOW,
-      principals: [new iam.ArnPrincipal('*')],
-    });
-
-    s3Bucket.addToResourcePolicy(publicReadPolicyStatement);
 
     const dynamoTable = new dynamodb.Table(this, "DynamoTable", {
       tableName: "FileLinkDB",
