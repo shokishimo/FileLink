@@ -80,6 +80,7 @@ func main() {
 		urlKey := pathParts[2]
 
 		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			fmt.Printf("Error parsing multipart form: %s\n", err.Error())
 			http.Error(w, "Unable to parse form", http.StatusBadRequest)
 			return
 		}
@@ -88,20 +89,23 @@ func main() {
 			for _, fileHeader := range fileHeaders {
 				file, err := fileHeader.Open()
 				if err != nil {
+					fmt.Printf("Error reading file: %s\n", err.Error())
 					http.Error(w, "Error reading file", http.StatusInternalServerError)
 					return
 				}
-				defer file.Close()
 	
-				if err := uploadToS3(apiHandler.s3Client, s3BucketName, fmt.Sprintf("%s+%s", urlKey, key), file); err != nil {
+				if err := uploadToS3(apiHandler.s3Client, s3BucketName, fmt.Sprintf("%s_%s", urlKey, key), file); err != nil {
+					file.Close()
+					fmt.Printf("Error uploading to S3: %s\n", err.Error())
 					http.Error(w, "Error uploading to S3", http.StatusInternalServerError)
 					return
-				}
+				}		
+				defer file.Close()
 			}
 		}
 
 		// success
-		resArray := []string{"success", "success"} // TODO: convert these to actual url strings
+		resArray := []string{"success ", "success"} // TODO: convert these to actual url strings
 		jsonRes, err := json.Marshal(resArray)
 		if err != nil {
 				http.Error(w, "Failed to serialize response", http.StatusInternalServerError)
@@ -116,11 +120,12 @@ func main() {
 }
 
 
-func uploadToS3(s3Client  *s3.Client, bucketName string, key string, body io.Reader) error {
+func uploadToS3(s3Client *s3.Client, bucketName string, key string, body io.Reader) error {
 	input := &s3.PutObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(key),
 		Body:   body,
+		ContentType: aws.String("application/zip"),
 	}
 
 	_, err := s3Client.PutObject(context.TODO(), input)
