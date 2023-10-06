@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	//"io"
+	"io"
 	"net/http"
 	"strings"
 
@@ -44,30 +44,29 @@ func main() {
 		s3Client:  s3.NewFromConfig(awsConfig),
 	}
 
+// GET
 	http.HandleFunc("/api/createNewUrl", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method is not alloed", http.StatusMethodNotAllowed)
 			return
 		}
-		u := uuid.New()
 
-		response := Url{
+		u := uuid.New()
+		resUrl := Url{
 			UrlKey: u.String(),
 		}
-
-		// Serialize the response object to JSON
-		jsonResponse, err := json.Marshal(response)
+		jsonRes, err := json.Marshal(resUrl)
 		if err != nil {
 			http.Error(w, "Failed to serialize response", http.StatusInternalServerError)
 			return
 		}
 
-		// Set Content-Type and send the response
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(jsonResponse)
+		w.Write(jsonRes)
 	})
 
+// POST
 	http.HandleFunc("/api/share/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method is not alloed", http.StatusMethodNotAllowed)
@@ -80,30 +79,50 @@ func main() {
 		}
 		urlKey := pathParts[2]
 
-		// Retrieve the file from post body
-		file, _, err := r.FormFile("zip-file")
-		if err != nil {
-			http.Error(w, "Unable to get the file", http.StatusBadRequest)
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			http.Error(w, "Unable to parse form", http.StatusBadRequest)
 			return
 		}
-		defer file.Close()
 
-		// Upload the file to S3
-		_, err = apiHandler.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
-			Bucket:      aws.String(s3BucketName),
-			Key:         aws.String("Filename_" + urlKey),
-			Body:        file,
-			ContentType: aws.String("application/zip"),
-		})
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to upload to S3: %s", err.Error()), http.StatusInternalServerError)
-			return
+		for key, fileHeaders := range r.MultipartForm.File {
+			for _, fileHeader := range fileHeaders {
+				file, err := fileHeader.Open()
+				if err != nil {
+					http.Error(w, "Error reading file", http.StatusInternalServerError)
+					return
+				}
+				defer file.Close()
+	
+				if err := uploadToS3(apiHandler.s3Client, s3BucketName, fmt.Sprintf("%s+%s", urlKey, key), file); err != nil {
+					http.Error(w, "Error uploading to S3", http.StatusInternalServerError)
+					return
+				}
+			}
 		}
 
 		// success
+		resArray := []string{"success", "success"} // TODO: convert these to actual url strings
+		jsonRes, err := json.Marshal(resArray)
+		if err != nil {
+				http.Error(w, "Failed to serialize response", http.StatusInternalServerError)
+				return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte("Successfully uploaded file to S3"))
+		w.Write(jsonRes)
 	})
 
 	lambda.Start(httpadapter.New(http.DefaultServeMux).ProxyWithContext)
+}
+
+
+func uploadToS3(s3Client  *s3.Client, bucketName string, key string, body io.Reader) error {
+	input := &s3.PutObjectInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(key),
+		Body:   body,
+	}
+
+	_, err := s3Client.PutObject(context.TODO(), input)
+	return err
 }
