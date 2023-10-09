@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/awslabs/aws-lambda-go-api-proxy/httpadapter"
 	"github.com/google/uuid"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 )
 
 type APIHandler struct {
@@ -66,50 +67,78 @@ func main() {
 		w.Write(jsonRes)
 	})
 
+// GET
+	http.HandleFunc("/api/download/", func(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodGet {
+			http.Error(w, "Method is not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		pathParts := strings.Split(r.URL.Path, "/")
+		fmt.Printf(r.URL.Path)
+    if len(pathParts) < 4 {
+        http.Error(w, "Not found", http.StatusNotFound)
+        return
+    }
+    s3ObjectKey := pathParts[3]
+
+		// Fetch the file from S3
+		res, err := downloadFromS3(apiHandler.s3Client, s3BucketName, s3ObjectKey)
+		if err != nil {
+				fmt.Printf("Error downloading from S3: %s\n", err.Error())
+				http.Error(w, "Error downloading from S3", http.StatusInternalServerError)
+				return
+		}
+
+		// Set the appropriate headers and write the response
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; %s", res))
+		w.WriteHeader(http.StatusOK)
+		w.Write(res)
+	})
+
 // POST
 	http.HandleFunc("/api/share/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
+			fmt.Printf("Method is not alloed: %s\n", err.Error())
 			http.Error(w, "Method is not alloed", http.StatusMethodNotAllowed)
 			return
 		}
 		pathParts := strings.Split(r.URL.Path, "/")
-		if len(pathParts) < 3 {
+		if len(pathParts) < 4 {
+			fmt.Printf("Not found: %s\n", err.Error())
 			http.Error(w, "Not found", http.StatusNotFound)
 			return
 		}
-		urlKey := pathParts[2]
+		urlKey := pathParts[3]
 
-		if err := r.ParseMultipartForm(10 << 20); err != nil {
-			fmt.Printf("Error parsing multipart form: %s\n", err.Error())
-			http.Error(w, "Unable to parse form", http.StatusBadRequest)
+		// Retrieve the file from post body
+		file, fileHeader, err := r.FormFile("zip-file")
+		if err != nil {
+			fmt.Printf("Unable to get the file3: %s\n", err.Error())
+			http.Error(w, "Unable to get the file", http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+
+		ind := "0"
+		res, err := uploadToS3(apiHandler.s3Client, s3BucketName, fmt.Sprintf("%s_%s", urlKey, ind), file, fileHeader.Header.Get("Content-Type"))
+		if err != nil {
+			fmt.Printf("Error uploading to S3: %s\n", err.Error())
+			http.Error(w, "Error uploading to S3", http.StatusInternalServerError)
 			return
 		}
 
-		for key, fileHeaders := range r.MultipartForm.File {
-			for _, fileHeader := range fileHeaders {
-				file, err := fileHeader.Open()
-				if err != nil {
-					fmt.Printf("Error reading file: %s\n", err.Error())
-					http.Error(w, "Error reading file", http.StatusInternalServerError)
-					return
-				}
-	
-				if err := uploadToS3(apiHandler.s3Client, s3BucketName, fmt.Sprintf("%s_%s", urlKey, key), file); err != nil {
-					file.Close()
-					fmt.Printf("Error uploading to S3: %s\n", err.Error())
-					http.Error(w, "Error uploading to S3", http.StatusInternalServerError)
-					return
-				}		
-				defer file.Close()
-			}
-		}
+		// Construct the S3 URL for the uploaded file
+		var uploadedUrls []string
+		uploadedUrls = append(uploadedUrls, *res.Key)
 
 		// success
-		resArray := []string{"success ", "success"} // TODO: convert these to actual url strings
-		jsonRes, err := json.Marshal(resArray)
+		jsonRes, err := json.Marshal(uploadedUrls)
 		if err != nil {
-				http.Error(w, "Failed to serialize response", http.StatusInternalServerError)
-				return
+			fmt.Printf("Failed to serialize response: %s\n", err.Error())
+			http.Error(w, "Failed to serialize response", http.StatusInternalServerError)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -119,15 +148,36 @@ func main() {
 	lambda.Start(httpadapter.New(http.DefaultServeMux).ProxyWithContext)
 }
 
+func downloadFromS3(s3Client *s3.Client, bucketName string, key string) ([]byte, error) {
+	input := &s3.GetObjectInput{
+			Bucket: aws.String(bucketName),
+			Key:    aws.String(key),
+	}
 
-func uploadToS3(s3Client *s3.Client, bucketName string, key string, body io.Reader) error {
+	resp, err := s3Client.GetObject(context.TODO(), input)
+	if err != nil {
+			return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+			return nil, err
+	}
+
+	return body, nil
+}
+
+
+func uploadToS3(s3Client *s3.Client, bucketName string, key string, body io.Reader, contentType string) (*manager.UploadOutput, error) {
+	uploader := manager.NewUploader(s3Client)
 	input := &s3.PutObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(key),
 		Body:   body,
-		ContentType: aws.String("application/zip"),
+		ContentType: aws.String(contentType),
 	}
 
-	_, err := s3Client.PutObject(context.TODO(), input)
-	return err
+	res, err := uploader.Upload(context.TODO(), input)
+	return res, err
 }

@@ -15,7 +15,7 @@ export class FileLinkStack extends cdk.Stack {
     const s3Bucket = new s3.Bucket(this, "S3Bucket", {
       bucketName: "file-link-s3bucket",
       publicReadAccess: true,
-      //blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      // blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       enforceSSL: true,
       versioned: true, // Ensures new versions of objects are created on overwrite
