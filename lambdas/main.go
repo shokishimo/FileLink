@@ -75,26 +75,28 @@ func main() {
 		}
 
 		pathParts := strings.Split(r.URL.Path, "/")
-		fmt.Printf(r.URL.Path)
     if len(pathParts) < 4 {
         http.Error(w, "Not found", http.StatusNotFound)
         return
     }
     s3ObjectKey := pathParts[3]
+		fmt.Println("Parsed S3 Object Key: ", s3ObjectKey)
 
 		// Fetch the file from S3
-		res, err := downloadFromS3(apiHandler.s3Client, s3BucketName, s3ObjectKey)
+		resp, err := downloadFromS3(apiHandler.s3Client, s3BucketName, s3ObjectKey)
 		if err != nil {
 				fmt.Printf("Error downloading from S3: %s\n", err.Error())
 				http.Error(w, "Error downloading from S3", http.StatusInternalServerError)
 				return
 		}
+    defer resp.Body.Close()
 
-		// Set the appropriate headers and write the response
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; %s", res))
-		w.WriteHeader(http.StatusOK)
-		w.Write(res)
+    // Set the appropriate headers
+    w.Header().Set("Content-Type", aws.ToString(resp.ContentType))
+    w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; ObjectKey=%s", s3ObjectKey))
+
+    // Stream the file to the HTTP response
+    io.Copy(w, resp.Body)
 	})
 
 // POST
@@ -112,8 +114,15 @@ func main() {
 		}
 		urlKey := pathParts[3]
 
+		err := r.ParseMultipartForm(10 << 20)
+		if err != nil {
+			fmt.Printf("Couldn't parse multiform: %s\n", err.Error())
+			http.Error(w, "Couldn't parse multiform", http.StatusNotFound)
+			return
+		}
+
 		// Retrieve the file from post body
-		file, fileHeader, err := r.FormFile("zip-file")
+		file, fileHeader, err := r.FormFile("theFile")
 		if err != nil {
 			fmt.Printf("Unable to get the file3: %s\n", err.Error())
 			http.Error(w, "Unable to get the file", http.StatusBadRequest)
@@ -131,7 +140,7 @@ func main() {
 
 		// Construct the S3 URL for the uploaded file
 		var uploadedUrls []string
-		uploadedUrls = append(uploadedUrls, *res.Key)
+		uploadedUrls = append(uploadedUrls, "https://file-link-s3bucket.s3.us-east-2.amazonaws.com/" + *res.Key)
 
 		// success
 		jsonRes, err := json.Marshal(uploadedUrls)
@@ -148,7 +157,9 @@ func main() {
 	lambda.Start(httpadapter.New(http.DefaultServeMux).ProxyWithContext)
 }
 
-func downloadFromS3(s3Client *s3.Client, bucketName string, key string) ([]byte, error) {
+
+
+func downloadFromS3(s3Client *s3.Client, bucketName string, key string) (*s3.GetObjectOutput, error) {
 	input := &s3.GetObjectInput{
 			Bucket: aws.String(bucketName),
 			Key:    aws.String(key),
@@ -158,14 +169,8 @@ func downloadFromS3(s3Client *s3.Client, bucketName string, key string) ([]byte,
 	if err != nil {
 			return nil, err
 	}
-	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-			return nil, err
-	}
-
-	return body, nil
+	return resp, nil
 }
 
 
