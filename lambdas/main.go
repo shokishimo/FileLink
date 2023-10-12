@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/awslabs/aws-lambda-go-api-proxy/httpadapter"
 	"github.com/google/uuid"
 )
@@ -31,7 +32,12 @@ const (
 )
 
 type PresignedStruct struct {
-	Url string `json:"url"`
+	Urls []string `json:"urls"`
+	ObjectKeys []string `json:"objectKeys"`
+}
+
+type NumOfFiles struct {
+	Num int `json:"numOfFiles"`
 }
 
 var apiHandler APIHandler
@@ -49,8 +55,51 @@ func main() {
 	}
 
 	http.HandleFunc("/api/generatePresignedUrl", generatePresignedUrl)
+	http.HandleFunc("/api/emptyBucket", emptyBucket)
 
 	lambda.Start(httpadapter.New(http.DefaultServeMux).ProxyWithContext)
+}
+
+func emptyBucket(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Write([]byte("Method not allowed"))
+		return
+	}
+
+	for {
+		input := &s3.ListObjectsV2Input{
+			Bucket:  aws.String(s3BucketName),
+		}
+		result, err := apiHandler.s3Client.ListObjectsV2(context.TODO(), input)
+		if err != nil {
+			fmt.Println(fmt.Printf("Failed to list objects: %s", err.Error()))
+			http.Error(w, fmt.Sprintf("Failed to list objects: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+		if len(result.Contents) == 0 { // if already empty
+			break
+		}
+
+		var objectIds []types.ObjectIdentifier
+		for _, object := range result.Contents {
+			objectIds = append(objectIds, types.ObjectIdentifier{Key: aws.String(*object.Key)})
+		}
+		deleteInput := &s3.DeleteObjectsInput{
+			Bucket: aws.String(s3BucketName),
+			Delete: &types.Delete{Objects: objectIds},
+		}
+		_, err = apiHandler.s3Client.DeleteObjects(context.TODO(), deleteInput)
+		if err != nil {
+			fmt.Println(fmt.Printf("Failed to delete objects: %s", err.Error()))
+			http.Error(w, fmt.Sprintf("Failed to delete objects: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Successfully empty the bucket"))
 }
 
 func generatePresignedUrl(w http.ResponseWriter, r *http.Request) {
@@ -60,27 +109,40 @@ func generatePresignedUrl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create the Presigned URL
-	objectKey := uuid.New().String()
-	request, err := apiHandler.s3PresignClient.PresignPutObject(context.TODO(), &s3.PutObjectInput{
-		Bucket: aws.String(s3BucketName),
-		Key:    aws.String(objectKey),
-	}, func(opt *s3.PresignOptions) {
-		opt.Expires = time.Duration(lifetimeSecs * int64(time.Second))
-	})
+	var reqBody NumOfFiles
+	err := json.NewDecoder(r.Body).Decode(&reqBody)
 	if err != nil {
-		fmt.Println(fmt.Printf("Couldn't get a presigned request to get %v:%v. Here's why: %v\n", s3BucketName, objectKey, err))
-		http.Error(w, fmt.Sprintf("Failed to generate presigned URL: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Invalid request body: %s", err.Error()), http.StatusBadRequest)
 		return
 	}
 
 	response := PresignedStruct{
-		Url: request.URL,
+		Urls: make([]string, reqBody.Num),
+		ObjectKeys: make([]string, reqBody.Num),
+	}
+
+	for i := 0; i < reqBody.Num; i++ {
+		// Create the Presigned URLs
+		objectKey := uuid.New().String()
+		request, err := apiHandler.s3PresignClient.PresignPutObject(context.TODO(), &s3.PutObjectInput{
+			Bucket: aws.String(s3BucketName),
+			Key:    aws.String(objectKey),
+		}, func(opt *s3.PresignOptions) {
+			opt.Expires = time.Duration(lifetimeSecs * int64(time.Second))
+		})
+		if err != nil {
+			fmt.Println(fmt.Printf("Couldn't get a presigned request (#%v) to get %v:%v. Here's why: %v\n", i, s3BucketName, objectKey, err))
+			http.Error(w, fmt.Sprintf("Failed to generate presigned URL: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		response.Urls[i] = request.URL
+		response.ObjectKeys[i] = objectKey
 	}
 
 	responseBytes, err := json.Marshal(response)
 	if err != nil {
-		fmt.Println(fmt.Printf("Couldn't Marshal a struct: %s", response.Url))
+		fmt.Println(fmt.Printf("Couldn't Marshal a struct: %v", response))
 		http.Error(w, fmt.Sprintf("Failed to generate presigned URL: %v", err), http.StatusInternalServerError)
 		return
 	}
