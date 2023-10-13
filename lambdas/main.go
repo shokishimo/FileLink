@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	//"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/awslabs/aws-lambda-go-api-proxy/httpadapter"
 	"github.com/google/uuid"
 )
@@ -55,52 +55,52 @@ func main() {
 	}
 
 	http.HandleFunc("/api/generatePresignedUrl", generatePresignedUrl)
-	http.HandleFunc("/api/emptyBucket", emptyBucket)
+	//http.HandleFunc("/api/emptyBucket", emptyBucket)
 
 	lambda.Start(httpadapter.New(http.DefaultServeMux).ProxyWithContext)
 }
 
-func emptyBucket(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write([]byte("Method not allowed"))
-		return
-	}
+// func emptyBucket(w http.ResponseWriter, r *http.Request) {
+// 	if r.Method != http.MethodDelete {
+// 		w.WriteHeader(http.StatusMethodNotAllowed)
+// 		w.Write([]byte("Method not allowed"))
+// 		return
+// 	}
 
-	for {
-		input := &s3.ListObjectsV2Input{
-			Bucket:  aws.String(s3BucketName),
-		}
-		result, err := apiHandler.s3Client.ListObjectsV2(context.TODO(), input)
-		if err != nil {
-			fmt.Println(fmt.Printf("Failed to list objects: %s", err.Error()))
-			http.Error(w, fmt.Sprintf("Failed to list objects: %s", err.Error()), http.StatusInternalServerError)
-			return
-		}
-		if len(result.Contents) == 0 { // if already empty
-			break
-		}
+// 	for {
+// 		input := &s3.ListObjectsV2Input{
+// 			Bucket:  aws.String(s3BucketName),
+// 		}
+// 		result, err := apiHandler.s3Client.ListObjectsV2(context.TODO(), input)
+// 		if err != nil {
+// 			fmt.Println(fmt.Printf("Failed to list objects: %s", err.Error()))
+// 			http.Error(w, fmt.Sprintf("Failed to list objects: %s", err.Error()), http.StatusInternalServerError)
+// 			return
+// 		}
+// 		if len(result.Contents) == 0 { // if already empty
+// 			break
+// 		}
 
-		var objectIds []types.ObjectIdentifier
-		for _, object := range result.Contents {
-			objectIds = append(objectIds, types.ObjectIdentifier{Key: aws.String(*object.Key)})
-		}
-		deleteInput := &s3.DeleteObjectsInput{
-			Bucket: aws.String(s3BucketName),
-			Delete: &types.Delete{Objects: objectIds},
-		}
-		_, err = apiHandler.s3Client.DeleteObjects(context.TODO(), deleteInput)
-		if err != nil {
-			fmt.Println(fmt.Printf("Failed to delete objects: %s", err.Error()))
-			http.Error(w, fmt.Sprintf("Failed to delete objects: %s", err.Error()), http.StatusInternalServerError)
-			return
-		}
-	}
+// 		var objectIds []types.ObjectIdentifier
+// 		for _, object := range result.Contents {
+// 			objectIds = append(objectIds, types.ObjectIdentifier{Key: aws.String(*object.Key)})
+// 		}
+// 		deleteInput := &s3.DeleteObjectsInput{
+// 			Bucket: aws.String(s3BucketName),
+// 			Delete: &types.Delete{Objects: objectIds},
+// 		}
+// 		_, err = apiHandler.s3Client.DeleteObjects(context.TODO(), deleteInput)
+// 		if err != nil {
+// 			fmt.Println(fmt.Printf("Failed to delete objects: %s", err.Error()))
+// 			http.Error(w, fmt.Sprintf("Failed to delete objects: %s", err.Error()), http.StatusInternalServerError)
+// 			return
+// 		}
+// 	}
 
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Successfully empty the bucket"))
-}
+// 	w.Header().Set("Content-Type", "text/plain")
+// 	w.WriteHeader(http.StatusOK)
+// 	w.Write([]byte("Successfully empty the bucket"))
+// }
 
 func generatePresignedUrl(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
