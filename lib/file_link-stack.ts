@@ -14,11 +14,10 @@ export class FileLinkStack extends cdk.Stack {
     // S3 Bucket Configuration
     const s3Bucket = new s3.Bucket(this, "S3Bucket", {
       bucketName: "file-link-s3bucket",
-      // publicReadAccess: true,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       enforceSSL: true,
-      versioned: true, // Ensures new versions of objects are created on overwrite
+      versioned: false, // Ensures new versions of objects are not created on overwrite to save storage
       cors: [
         {
           allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.POST, s3.HttpMethods.PUT, s3.HttpMethods.DELETE],
