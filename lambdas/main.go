@@ -144,7 +144,7 @@ func getPresignedUrls(w http.ResponseWriter, r *http.Request) {
 			Bucket: aws.String(s3BucketName),
 			Key:    aws.String(key),
 		}, func(opts *s3.PresignOptions) {
-			opts.Expires = time.Duration(lifetimeSecs * int64(time.Second))
+			opts.Expires = time.Duration(lifetimeSecs * 60 * int64(time.Second))
 		})
 		if err != nil {
 			fmt.Println(fmt.Printf("Couldn't get a presigned request (#%v) to get %v:%v. Here's why: %v\n", i, s3BucketName, key, err))
