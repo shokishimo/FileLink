@@ -1,2 +1,2 @@
-Go ahead and play around
-https://main.d4496s88jssjn.amplifyapp.com/
+## Auto Deployment on Amplify
+Try [here](https://main.d4496s88jssjn.amplifyapp.com/)
