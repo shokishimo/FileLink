@@ -28,16 +28,24 @@ const (
 	awsRegion       string = "us-east-2"
 	dynamoTableName string = "FileLinkDB"
 	s3BucketName    string = "file-link-s3bucket"
-	lifetimeSecs    int64    = 180
+	lifetimeSecs    int64  = 60
 )
 
-type PresignedStruct struct {
+type PostPresignedRes struct {
 	Urls []string `json:"urls"`
 	ObjectKeys []string `json:"objectKeys"`
 }
 
-type NumOfFiles struct {
+type PostPresignedReq struct {
 	Num int `json:"numOfFiles"`
+}
+
+type GetPresignReq struct {
+	Keys []string `json:"keys"`
+}
+
+type GetPresignRes struct {
+	Urls []string `json:"urls"`
 }
 
 var apiHandler APIHandler
@@ -54,12 +62,111 @@ func main() {
 		s3PresignClient: s3.NewPresignClient(s3.NewFromConfig(awsConfig)),
 	}
 
-	http.HandleFunc("/api/generatePresignedUrl", generatePresignedUrl)
+	http.HandleFunc("/api/postPresignedUrls", postPresignedUrls)
+	http.HandleFunc("/api/getPresignedUrls", getPresignedUrls)
 	//http.HandleFunc("/api/emptyBucket", emptyBucket)
 
 	lambda.Start(httpadapter.New(http.DefaultServeMux).ProxyWithContext)
 }
 
+
+// POST
+func postPresignedUrls(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Write([]byte("Method not allowed"))
+		return
+	}
+
+	var reqBody PostPresignedReq
+	err := json.NewDecoder(r.Body).Decode(&reqBody)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request body: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	response := PostPresignedRes{
+		Urls: make([]string, reqBody.Num),
+		ObjectKeys: make([]string, reqBody.Num),
+	}
+
+	for i := 0; i < reqBody.Num; i++ {
+		// Create the Presigned URLs
+		objectKey := uuid.New().String()
+		request, err := apiHandler.s3PresignClient.PresignPutObject(context.TODO(), &s3.PutObjectInput{
+			Bucket: aws.String(s3BucketName),
+			Key:    aws.String(objectKey),
+		}, func(opt *s3.PresignOptions) {
+			opt.Expires = time.Duration(lifetimeSecs * int64(time.Second))
+		})
+		if err != nil {
+			fmt.Println(fmt.Printf("Couldn't get a presigned request (#%v) to get %v:%v. Here's why: %v\n", i, s3BucketName, objectKey, err))
+			http.Error(w, fmt.Sprintf("Failed to generate presigned URL: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		response.Urls[i] = request.URL
+		response.ObjectKeys[i] = objectKey
+	}
+
+	responseBytes, err := json.Marshal(response)
+	if err != nil {
+		fmt.Println(fmt.Printf("Couldn't Marshal a struct: %v", response))
+		http.Error(w, fmt.Sprintf("Failed to generate presigned URL: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(responseBytes)
+}
+
+
+// POST
+func getPresignedUrls(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Write([]byte("Method not allowed"))
+		return
+	}
+
+	var reqBody GetPresignReq
+	err := json.NewDecoder(r.Body).Decode(&reqBody)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request body: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	// makes a presigned request that can be used to get an object from a bucket.
+	// The presigned request is valid for the specified number of seconds.
+	response := new(GetPresignRes)
+	for i, key := range reqBody.Keys {
+		request, err := apiHandler.s3PresignClient.PresignGetObject(context.TODO(), &s3.GetObjectInput{
+			Bucket: aws.String(s3BucketName),
+			Key:    aws.String(key),
+		}, func(opts *s3.PresignOptions) {
+			opts.Expires = time.Duration(lifetimeSecs * int64(time.Second))
+		})
+		if err != nil {
+			fmt.Println(fmt.Printf("Couldn't get a presigned request (#%v) to get %v:%v. Here's why: %v\n", i, s3BucketName, key, err))
+			http.Error(w, fmt.Sprintf("Failed to generate presigned URL: %v", err), http.StatusInternalServerError)
+			return
+		}
+		response.Urls = append(response.Urls, request.URL)
+	}
+
+	responseBytes, err := json.Marshal(response)
+	if err != nil {
+		fmt.Println(fmt.Printf("Couldn't Marshal a struct: %v", response))
+		http.Error(w, fmt.Sprintf("Failed to generate presigned URL: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(responseBytes)
+}
+
+
+// DELETE
 // func emptyBucket(w http.ResponseWriter, r *http.Request) {
 // 	if r.Method != http.MethodDelete {
 // 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -101,52 +208,3 @@ func main() {
 // 	w.WriteHeader(http.StatusOK)
 // 	w.Write([]byte("Successfully empty the bucket"))
 // }
-
-func generatePresignedUrl(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write([]byte("Method not allowed"))
-		return
-	}
-
-	var reqBody NumOfFiles
-	err := json.NewDecoder(r.Body).Decode(&reqBody)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request body: %s", err.Error()), http.StatusBadRequest)
-		return
-	}
-
-	response := PresignedStruct{
-		Urls: make([]string, reqBody.Num),
-		ObjectKeys: make([]string, reqBody.Num),
-	}
-
-	for i := 0; i < reqBody.Num; i++ {
-		// Create the Presigned URLs
-		objectKey := uuid.New().String()
-		request, err := apiHandler.s3PresignClient.PresignPutObject(context.TODO(), &s3.PutObjectInput{
-			Bucket: aws.String(s3BucketName),
-			Key:    aws.String(objectKey),
-		}, func(opt *s3.PresignOptions) {
-			opt.Expires = time.Duration(lifetimeSecs * int64(time.Second))
-		})
-		if err != nil {
-			fmt.Println(fmt.Printf("Couldn't get a presigned request (#%v) to get %v:%v. Here's why: %v\n", i, s3BucketName, objectKey, err))
-			http.Error(w, fmt.Sprintf("Failed to generate presigned URL: %v", err), http.StatusInternalServerError)
-			return
-		}
-
-		response.Urls[i] = request.URL
-		response.ObjectKeys[i] = objectKey
-	}
-
-	responseBytes, err := json.Marshal(response)
-	if err != nil {
-		fmt.Println(fmt.Printf("Couldn't Marshal a struct: %v", response))
-		http.Error(w, fmt.Sprintf("Failed to generate presigned URL: %v", err), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(responseBytes)
-}
