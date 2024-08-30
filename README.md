@@ -6,3 +6,5 @@
 
 ## Architecture
 <img width="500" alt="スクリーンショット 2024-08-30 12 34 54" src="https://github.com/user-attachments/assets/99d44e34-00f4-47bc-b147-d056a2828895">
+
+*This repo is the backend part of the project. The frontend is right here: https://github.com/shokishimo/FileLink-Web
